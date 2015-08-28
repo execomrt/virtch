@@ -28,24 +28,27 @@ Support for pitch control (increment) and volume.
 
 Test Units
 =====================================================================
+
 gcc virtch_simd.c -DTEST -o virtch -g -Ofast -msse4.2
 Then type the generated executable
  ./virtch
- 
-====================
+
+This will output performance between SIMD and standard implementation.
+
 virtch_downmix_32_16 test... 
 76305 cycles
 12210 cycles (SIMD)
-====================
+
 virtch_mix_stereo test... 
 247740 cycles
 66036 cycles (SIMD)
-====================
+
 virtch_mix_stereo_st test... 
 117185 cycles
 72171 cycles (SIMD)
 
-
+API Reference
+=====================================================================
 
 /* enable SIMD processing. 0 to disable */
 void virtch_set_features(int features);
