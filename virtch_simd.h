@@ -1,31 +1,10 @@
-/*	
-
-Copyright 2015 realtech VR 
-
-This software is provided 'as-is', without any express or implied
-warranty. In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgement in the product documentation would be
-   appreciated but is not required.
-2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
-3. This notice may not be removed or altered from any source distribution.
-
-*/
-
 /*==============================================================================
  
  $Id$
  
- Sample mixing routines, using a 32 bits mixing buffer.
- Reloaded function with ALTIVEC, ARM NEON, SSE, AVX, AVX2, AVX512F
+ virtch_simd.h
+ Audio processing and resampling from 32bit (int and float) to 16bit sound buffer
+ Implementation for SSE, Altivec, ARM Neon, AVX
  
  ==============================================================================*/
 
@@ -41,7 +20,7 @@ freely, subject to the following restrictions:
 // SSE2 (2001)
 #define VMIX_SIMD_SSE 3
 
-// AVX : Same as SSE2 (no viable optimization possible_
+// AVX : Same as SSE2 (no viable optimization possible)
 #define VMIX_SIMD_AVX 4
 
 // AVX2 : Haswell. Never tested
