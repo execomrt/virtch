@@ -73,6 +73,78 @@
 #define SAMPLE_ALIGN 64
 #endif
 
+
+#if defined _M_ARM64
+#include <arm64_neon.h>
+typedef float32x4_t v4sf;  // vector of 4 float
+typedef int32x4_t v4si;  // vector of 4 uint32
+
+#elif defined __ARM_NEON__
+#include <arm_neon.h>
+typedef float32x4_t v4sf;  // vector of 4 float
+typedef int32x4_t v4si;  // vector of 4 uint32
+
+#elif VMIX_SIMD == VMIX_SIMD_SSE || VMIX_SIMD == VMIX_SIMD_AVX ||  VMIX_SIMD == VMIX_SIMD_AVX2 || VMIX_SIMD == VMIX_SIMD_AVX512
+
+#if defined _MSC_VER
+
+#if defined(_M_IX86) || defined(_M_X64)
+#include <intrin.h>
+#include <immintrin.h> 
+#endif
+
+#define FORCE_INLINE(type) static __inline type
+#else
+
+#if defined(__x86_64__) || defined(__amd64__)
+#include <immintrin.h> 
+#else
+#error ("Invalid Target")
+#endif
+
+#define FORCE_INLINE(type) static __inline type __attribute__((__always_inline__, __nodebug__))
+
+#endif
+
+typedef __m128 v4sf;  // vector of 4 float
+typedef __m128i v4si;  // vector of 4 uint32
+
+#ifdef __AVX__
+typedef __m256 v8sf;  // vector of 8 uint32
+typedef __m256i v8si;  // vector of 8 float
+#endif
+
+#ifdef __AVX512F__
+typedef __m512 v16sf;  // vector of 16 float
+typedef __m512i v16si;  // vector of 16 uint32
+#endif
+
+#endif
+
+
+#if VMIX_SIMD == VMIX_SIMD_AVX2 || VMIX_SIMD == VMIX_SIMD_AVX512
+
+
+FORCE_INLINE(void)
+unpackhi_epi16_store(__m256i* out, v8si a, v8si b)
+{
+	// Interleaves the upper 8 signed 16-bit integers in a with the upper 8 signed or unsigned 16-bit integers in b.
+    _mm256_store_si256(out, _mm256_unpackhi_epi16(a, b));
+}
+
+FORCE_INLINE(void)
+unpacklo_epi16_store(__m256i* out, v8si a, v8si b)
+{
+    _mm256_store_si256(out, _mm256_unpacklo_epi16(a, b));
+}
+
+
+#elif defined __AVX__
+
+
+#endif
+
+
 #define VOL_MAX (1 << BITSHIFT)
 
 #define BITSHIFT 9
@@ -117,6 +189,11 @@ extern "C"
 	/* convert int8 sample to floating buffer */
     void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t n);
     
+    /* convert float to int16 */
+    int virtch_pack_float_int16(sample_t* outdata, const float** pcm, int channels, size_t n);
+
+    /* deinterleave two arrays of float to a single array*/
+    void virtch_deinterleave_float(float* outdata, const float** pcm, int channels, size_t n);
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
