@@ -13,86 +13,7 @@
  ==============================================================================*/
 #include "virtch_simd.h"
 #include  <memory.h>
-#ifdef __ALTIVEC__
-#ifdef __GNUC__
-#include <ppc_intrinsics.h>
-#endif
-typedef vector float v4sf;  // vector of 4 float
-typedef vector signed int v4si;  // vector of 4 uint32
-#elif defined __ARM_NEON__
-#ifdef _M_ARM64
-#include <arm64_neon.h>
-#else
-#include <arm_neon.h>
-#endif
-typedef float32x4_t v4sf;  // vector of 4 float
-typedef int32x4_t v4si;  // vector of 4 uint32
-typedef int16x8_t v8sw;  // vector of 4 uint32
-typedef int16x4_t v4sw;
-#ifdef _WPHONE
-// set 4 signed short to 16x4t
-inline v4sw vec_set_4sw(int16_t a, int16_t b, int16_t c, int16_t d)
-{
-    v4sw ret;
-    ret.n64_i16[0] = a;
-    ret.n64_i16[1] = b;
-    ret.n64_i16[2] = c;
-    ret.n64_i16[3] = d;
-    return ret;
-}
-#else
-#define vec_set_4sw(a,b,c,d) {a, b, c, d}
-#endif
-#elif VMIX_SIMD == VMIX_SIMD_SSE ||  	  VMIX_SIMD == VMIX_SIMD_AVX || 	  VMIX_SIMD == VMIX_SIMD_AVX2 || 	  VMIX_SIMD == VMIX_SIMD_AVX512
-// -mavx2
-#ifdef __AVX__
-FORCE_INLINE(v8si) vec256_fmadd_16(v8si a, v8si b, v8si c) // a  + b * c
-{
-    v8si res;
-    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
-    res = _mm256_mullo_epi16(b,  c); // not _mm_madd_epi16
-    return _mm256_add_epi32 (res, a);
-}
-#endif
-// -mavx512f
-#ifdef __AVX512F__
-FORCE_INLINE(v16si) vec512_fmadd_16(v16si a, v16si b, v16si c) // a  + b * c
-{
-    v16si res;
-    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
-    res = _mm512_mullo_epi16(b,  c); // not _mm_madd_epi16
-    return _mm512_add_epi32 (res, a);
-}
-#endif
-// Set 4 short integer to lo part
-#define vec_setlo_4si(a, b, c, d)  _mm_set_epi16(0, d, 0, c, 0, b, 0, a)
-// -msse4.1
-FORCE_INLINE(v4si) vec_fmadd_16(v4si a, v4si b, v4si c) // a  + b * c
-{
-    v4si res;
-    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
-    res = _mm_mullo_epi16(b,  c);
-    return _mm_add_epi32 (res, a);
-}
-#endif
-#ifdef VIRTCH_HQ
-/**
-*   Allow higher quality
-*
-* @param srce:
-* @return none
-*/
-FORCE_INLINE(sample_t) GetLerpSample(const sample_t* const srce, size_t idx)
-{
-    size_t i = idx>>FRACBITS;
-    streamsample_t f = idx&FRACMASK;
-    return (sample_t)(((((streamsample_t)srce[i+0] * (FRACMASK+1L-f)) +
-                        ((streamsample_t)srce[i+1] * f)) >> FRACBITS));
-}
-#define FETCH_SAMPLE(src, offset, increment) GetLerpSample(src, offset); offset += increment
-#else
-#define FETCH_SAMPLE(src, offset, increment) ((sample_t)src[(offset) >> FRACBITS]); offset += increment
-#endif
+static const float ONE = 32767;
 static int virtch_features = 0;
 /**
  * enable SIMD function
@@ -104,6 +25,78 @@ void virtch_set_features(int features)
 {
     virtch_features = features;
 }
+
+#ifdef __ALTIVEC__
+#ifdef __GNUC__
+#include <ppc_intrinsics.h>
+#endif
+typedef vector float v4sf;  // vector of 4 float
+typedef vector signed int v4si;  // vector of 4 uint32
+#elif defined __ARM_NEON__
+#ifdef _M_ARM64
+#include <arm64_neon.h>
+#else
+
+#include <arm_neon.h>
+#endif
+typedef float32x4_t v4sf;  // vector of 4 float
+typedef int32x4_t v4si;  // vector of 4 uint32
+typedef int16x8_t v8sw;  // vector of 4 uint32
+typedef int16x4_t v4sw;
+#define vec_set_4sw(a,b,c,d) {a, b, c, d}
+#elif defined ANDROID
+// No
+#elif VMIX_SIMD == VMIX_SIMD_SSE ||  	  VMIX_SIMD == VMIX_SIMD_AVX || 	  VMIX_SIMD == VMIX_SIMD_AVX2 || 	  VMIX_SIMD == VMIX_SIMD_AVX512
+// -mavx2
+#ifdef __AVX__
+VMIX_FORCE_INLINE(v8si) vec256_fmadd_16(v8si a, v8si b, v8si c) // a  + b * c
+{
+    v8si res;
+    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
+    res = _mm256_mullo_epi16(b,  c); // not _mm_madd_epi16
+    return _mm256_add_epi32 (res, a);
+}
+#endif
+// -mavx512f
+#ifdef __AVX512F__
+VMIX_FORCE_INLINE(v16si) vec512_fmadd_16(v16si a, v16si b, v16si c) // a  + b * c
+{
+    v16si res;
+    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
+    res = _mm512_mullo_epi16(b,  c); // not _mm_madd_epi16
+    return _mm512_add_epi32 (res, a);
+}
+#endif
+// Set 4 short integer to lo part
+#define vec_setlo_4si(a, b, c, d)  _mm_set_epi16(0, d, 0, c, 0, b, 0, a)
+// -msse4.1
+static v4si vec_fmadd_16(v4si a, v4si b, v4si c) // a  + b * c
+{
+    v4si res;
+    // Multiplies the 8 signed or unsigned 16-bit integers from a by the 8 signed or unsigned 16-bit integers from b.
+    res = _mm_mullo_epi16(b,  c);
+    return _mm_add_epi32 (res, a);
+}
+#endif
+#ifdef VIRTCH_HQ
+/**
+* Allow higher quality
+*
+* @param srce:
+* @return none
+*/
+VMIX_FORCE_INLINE(sample_t) GetLerpSample(const sample_t* const srce, size_t idx)
+{
+    size_t i = idx>>FRACBITS;
+    streamsample_t f = idx&FRACMASK;
+    return (sample_t)(((((streamsample_t)srce[i+0] * (FRACMASK+1L-f)) +
+                        ((streamsample_t)srce[i+1] * f)) >> FRACBITS));
+}
+#define FETCH_SAMPLE(src, offset, increment) GetLerpSample(src, offset); offset += increment
+#else
+#define FETCH_SAMPLE(src, offset, increment) ((sample_t)src[(offset) >> FRACBITS]); offset += increment
+#endif
+
 // Convert 32 to 16
 #define BITSHIFT_VOL_32_16 (BITSHIFT )
 // Convert 32 to 8
@@ -565,10 +558,10 @@ size_t virtch_mix_stereo_st(const sample_t* src,
 /**
  * Convert array of samples to float arrays
  *
- * @param dst: output buffer of samples
- * @param src:
- * @param channels: number of channels (1 or 2)
- * @param length: number of samples
+ * @param dst output buffer of samples
+ * @param src
+ * @param channels number of channels (1 or 2)
+ * @param length number of samples
  * @return none
  */
 void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t length)
@@ -589,10 +582,10 @@ void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t le
 /**
  * Convert array of samples to float arrays
  *
- * @param dst: output buffer of samples
- * @param src:
- * @param channels: number of channels (1 or 2)
- * @param length: number of samples
+ * @param dst output buffer of samples
+ * @param src
+ * @param channels number of channels (1 or 2)
+ * @param length number of samples
  * @return none
  */
 void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t length)
@@ -645,7 +638,7 @@ void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t
     }
 #endif
 }
-static const float ONE = 32767;
+
 /**
  * Convert float to int with clamp
  *
@@ -671,12 +664,12 @@ static sample_t virtch_ftoi(float inval)
  */
 static void virtch_pack_float_int16_st(sample_t* dst, const float* left, const float* right, size_t length)
 {   
-    size_t remain = length;
+
 #if (VMIX_SIMD == VMIX_SIMD_AVX512)
     if (virtch_features)
         if ((((size_t)right & 63) == 0) && (((size_t)left & 63) == 0))
         {
-            remain = length & 63;
+            size_t remain = length & 63;
             v16sf cst = _mm512_set1_ps(ONE); // This code was never tested
             for (length >>= 5; length; length--)
             {
@@ -703,7 +696,7 @@ static void virtch_pack_float_int16_st(sample_t* dst, const float* left, const f
     if (virtch_features)
         if ((((size_t)right & 31) == 0) && (((size_t)left & 31) == 0))
         {
-            remain = length & 31;
+            size_t remain = length & 31;
             v8sf cst = _mm256_set1_ps(ONE);
             for (length >>= 4; length; length--)
             {
@@ -732,7 +725,7 @@ static void virtch_pack_float_int16_st(sample_t* dst, const float* left, const f
         if ((((size_t)right & 15) == 0) && (((size_t)left & 15) == 0))
         {
             v4sf cst = _mm_load_ps1(&ONE);
-            remain = length & 31;
+            size_t remain = length & 31;
             for (length >>= 3; length; length--)
             {
                 v4sf v0 = _mm_mul_ps(_mm_load_ps(left), cst);
@@ -764,9 +757,9 @@ static void virtch_pack_float_int16_st(sample_t* dst, const float* left, const f
 /**
  * converts float array to sample_t
  *
- * @param dst: output buffer of samples
- * @param left: input left channel of float
- * @param length: number of samples
+ * @param dst output buffer of samples
+ * @param left input left channel of float
+ * @param length number of samples
  * @return none
  */
 static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_t length)
@@ -818,10 +811,10 @@ static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_
 /**
  * converts float array to sample_t
  *
- * @param dst: output buffer of samples
- * @param src: input channels
- * @param channels: number of channels (1 or 2)
- * @param length: number of samples
+ * @param dst output buffer of samples
+ * @param src input channels
+ * @param channels number of channels (1 or 2)
+ * @param length number of samples
  * @return none
  */
 int virtch_pack_float_int16(sample_t* dst, const float** src, int channels, size_t length)
@@ -878,10 +871,10 @@ static void virtch_deinterleave_st_float(float* dst, const float* left, const fl
 /**
  * interleave two array of float to one
  *
- * @param dst: output buffer of samples
- * @param src: input channels
- * @param channels: number of channels (1 or 2)
- * @param length: number of samples
+ * @param dst output buffer of samples
+ * @param src input channels
+ * @param channels number of channels (1 or 2)
+ * @param length number of samples
  * @return none
  */
 void virtch_deinterleave_float(float* dst, const float** src, int channels, size_t length)
