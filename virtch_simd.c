@@ -608,10 +608,8 @@ void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t
 #endif
 }
 /**
- * Convert float to int with clamp
+ * Convert array of samples to float arrays
  *
- * @param inval float value
- * @return integer value (16-bit signed)
  */
 static sample_t virtch_ftoi(float inval)
 {
@@ -622,265 +620,118 @@ static sample_t virtch_ftoi(float inval)
     return (sample_t)(inval * ONE);
 }
 /**
- * packs two array of float (left and right) to an interleaved buffer. Useful for OGG Raw PCM Float Channel to 16-bit
+ * Convert float to int with clamp
  *
-
+ * @param inval float value
+ * @return integer value (16-bit signed)
  */
+inline size_t process_simd_floats_to_ints_st(const float* left, const float* right, sample_t* dst, size_t length) {
 
-#ifdef EXPERIMENTAL_VIRTCH_NEON
-
-// Helper function to process SIMD operations for converting float to int16_t
-inline void process_simd_floats_to_ints(const float* left, const float* right, sample_t* dst, size_t count, size_t simd_size, size_t vector_width) {
-#if (VMIX_SIMD == VMIX_SIMD_AVX512)
-    if (vector_width == 16) {  // AVX512 - 512 bits (16 floats at once)
-        for (size_t i = 0; i < count; i++) {
-            v16sf v0 = _mm512_load_ps(left);       // Load 16 floats from left
-            v16sf v1 = _mm512_load_ps(right);      // Load 16 floats from right
-            v16si v4 = _mm512_cvttps_epi32(v0);    // Convert floats to ints
+    sample_t* start = dst;
+#if (VMIX_SIMD >= VMIX_SIMD_AVX512)        
+    {
+        v16sf cst = _mm512_set1_ps(ONE); // This code was never tested
+        size_t remainder = length - ((length >> 5) << 5);
+        for (length >>= 5; length; length--)
+        {
+            v16sf v0 = _mm512_mul_ps(_mm512_load_ps(left), cst);
+            v16sf v1 = _mm512_mul_ps(_mm512_load_ps(right), cst);
+            v16sf v2 = _mm512_mul_ps(_mm512_load_ps(left + 16), cst);
+            v16sf v3 = _mm512_mul_ps(_mm512_load_ps(right + 16), cst);
+            v16si v4 = _mm512_cvttps_epi32(v0);
             v16si v5 = _mm512_cvttps_epi32(v1);
-            v16si v8 = _mm512_packs_epi32(v4, v5); // Pack the ints to 16-bit
-            _mm512_store_si512((v16si*)(dst), v8); // Store the result
+            v16si v6 = _mm512_cvttps_epi32(v2);
+            v16si v7 = _mm512_cvttps_epi32(v3);
+            v16si v8 = _mm512_packs_epi32(v4, v6);
+            v16si v9 = _mm512_packs_epi32(v5, v7);
+            _mm512_store_si512((v16si*)(dst), _mm512_unpacklo_epi16(v8, v9));
+            _mm512_store_si512((v16si*)(dst + 32), _mm512_unpackhi_epi16(v8, v9));
+            left += 32;
+            right += 32;
+            dst += 64;
+        }
+        length = remainder;
+     }
+#endif
+
+#if (VMIX_SIMD == VMIX_SIMD_AVX2 || VMIX_SIMD == VMIX_SIMD_AVX512)
+    {
+        v8sf cst = _mm256_set1_ps(ONE);
+        size_t remainder = length - ((length >> 4) << 4);
+        for (length >>= 4; length; length--)
+        {
+            v8sf v0 = _mm256_mul_ps(_mm256_load_ps(left), cst);
+            v8sf v1 = _mm256_mul_ps(_mm256_load_ps(right), cst);
+            v8sf v2 = _mm256_mul_ps(_mm256_load_ps(left + 8), cst);
+            v8sf v3 = _mm256_mul_ps(_mm256_load_ps(right + 8), cst);
+            v8si v4 = _mm256_cvttps_epi32(v0);
+            v8si v6 = _mm256_cvttps_epi32(v2);
+            v8si v5 = _mm256_cvttps_epi32(v1);
+            v8si v7 = _mm256_cvttps_epi32(v3);
+            v8si v8 = _mm256_packs_epi32(v4, v6);
+            v8si v9 = _mm256_packs_epi32(v5, v7);
+            unpacklo_epi16_store((v8si*)(dst), v8, v9);
+            unpackhi_epi16_store((v8si*)(dst + 16), v8, v9);
             left += 16;
             right += 16;
             dst += 32;
         }
+        length = remainder;
+        _mm256_zeroupper(); // Will switch to SSE
     }
-    else
 #endif
-#if (VMIX_SIMD >= VMIX_SIMD_AVX2)
-        if (vector_width == 8) {  // AVX2 - 256 bits (8 floats at once)
-        for (size_t i = 0; i < count; i++) {
-            v8sf v0 = _mm256_load_ps(left);       // Load 8 floats from left
-            v8sf v1 = _mm256_load_ps(right);      // Load 8 floats from right
-            v8si v4 = _mm256_cvttps_epi32(v0);    // Convert floats to ints
-            v8si v5 = _mm256_cvttps_epi32(v1);
-            v8si v8 = _mm256_packs_epi32(v4, v5); // Pack the ints to 16-bit
-            _mm256_store_si256((v8si*)(dst), v8); // Store the result
+#if (VMIX_SIMD >= VMIX_SIMD_SSE)
+    {
+        v4sf cst = _mm_load_ps1(&ONE);
+        size_t remainder = length - ((length >> 3) << 3);
+        for (length >>= 3; length; length--)
+        {
+            v4sf v0 = _mm_mul_ps(_mm_load_ps(left), cst);
+            v4sf v1 = _mm_mul_ps(_mm_load_ps(right), cst);
+            v4sf v2 = _mm_mul_ps(_mm_load_ps(left + 4), cst);
+            v4sf v3 = _mm_mul_ps(_mm_load_ps(right + 4), cst);
+            v4si v4 = _mm_cvttps_epi32(v0);
+            v4si v5 = _mm_cvttps_epi32(v1);
+            v4si v6 = _mm_cvttps_epi32(v2);
+            v4si v7 = _mm_cvttps_epi32(v3);
+            v4si v8 = _mm_packs_epi32(v4, v6);
+            v4si v9 = _mm_packs_epi32(v5, v7);
+            _mm_store_si128((v4si*)(dst), _mm_unpacklo_epi16(v8, v9));
+            _mm_store_si128((v4si*)(dst + 8), _mm_unpackhi_epi16(v8, v9));
             left += 8;
             right += 8;
             dst += 16;
         }
-        _mm256_zeroupper();  // Clear the upper part of AVX2 registers
-    } else
-#endif
-#if (VMIX_SIMD >= VMIX_SIMD_SSE)
-        if (vector_width == 4) {  // SSE - 128 bits (4 floats at once)
-        for (size_t i = 0; i < count; i++) {
-            v4sf v0 = _mm_load_ps(left);        // Load 4 floats from left
-            v4sf v1 = _mm_load_ps(right);       // Load 4 floats from right
-            v4si v4 = _mm_cvttps_epi32(v0);     // Convert floats to ints
-            v4si v5 = _mm_cvttps_epi32(v1);
-            v4si v8 = _mm_packs_epi32(v4, v5);  // Pack the ints to 16-bit
-            _mm_store_si128((v4si*)(dst), v8);  // Store the result
-            left += 4;
-            right += 4;
-            dst += 8;
-        }
+        length = remainder;
     }
 #endif
-}
 
-// Main function to process the float signal and convert to int16_t
-void virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const float* __right, size_t length) {
-    sample_t* dst = (sample_t*)ALIGNED_AS(__dst, 64);  // Ensure destination is aligned to 64 bytes
-    float* left = (float*)ALIGNED_AS(__left, 16);       // Ensure left array is aligned to 16 bytes
-    float* right = (float*)ALIGNED_AS(__right, 16);     // Ensure right array is aligned to 16 bytes
-
-    sample_t* end = dst + length * 2;
-
-    // Check virtch_features first to enable SIMD
-    if (virtch_features) {
-        
-        // AVX512 Block
-        #if (VMIX_SIMD == VMIX_SIMD_AVX512)
-            for (length >>= 5; length; length--) {
-                process_simd_floats_to_ints(left, right, dst, 16, 16, 16); // 16 floats processed at once (AVX512)
-                left += 16;
-                right += 16;
-                dst += 32;
-            }
-        #elif (VMIX_SIMD == VMIX_SIMD_AVX2)
-            for (length >>= 4; length; length--) {
-                process_simd_floats_to_ints(left, right, dst, 8, 8, 8);   // 8 floats processed at once (AVX2)
-                left += 8;
-                right += 8;
-                dst += 16;
-            }
-            _mm256_zeroupper();  // Clear the upper part of AVX2 registers
-        #elif (VMIX_SIMD == VMIX_SIMD_SSE)
-            for (length >>= 3; length; length--) {
-                process_simd_floats_to_ints(left, right, dst, 4, 4, 4);   // 4 floats processed at once (SSE)
-                left += 4;
-                right += 4;
-                dst += 8;
-            }
-        #elif (VMIX_SIMD == VMIX_SIMD_NEON)
-        if (virtch_features)
-            if ((((size_t)right & 15) == 0) && (((size_t)left & 15) == 0))
-            {
-                float32x4_t cst = vdupq_n_f32(ONE);  // Load constant ONE into NEON register
-                for (length >>= 3; length; length--)
-                {
-                    // Load 4 floats from left and right arrays
-                    float32x4_t v0 = vmulq_f32(vld1q_f32(left), cst);
-                    float32x4_t v1 = vmulq_f32(vld1q_f32(right), cst);
-                    float32x4_t v2 = vmulq_f32(vld1q_f32(left + 4), cst);
-                    float32x4_t v3 = vmulq_f32(vld1q_f32(right + 4), cst);
-
-                    // Convert float to int32
-                    int32x4_t v4 = vcvtq_s32_f32(v0);
-                    int32x4_t v5 = vcvtq_s32_f32(v1);
-                    int32x4_t v6 = vcvtq_s32_f32(v2);
-                    int32x4_t v7 = vcvtq_s32_f32(v3);
-
-                    // Pack int32 to int16
-                    int16x8_t v8 = vqmovn_high_s32(vqmovn_s32(v4), v6);
-                    int16x8_t v9 = vqmovn_high_s32(vqmovn_s32(v5), v7);
-
-                    // Store the results
-                    vst1q_s16((int16_t*)(dst), v8);
-                    vst1q_s16((int16_t*)(dst + 8), v9);
-
-                    left += 8;
-                    right += 8;
-                    dst += 16;
-                }
-            }
-        #endif
-    }
-
-    // Fallback for non-SIMD paths when virtch_features is disabled or SIMD isn't used
-    while (dst < end) {
-        dst[0] = virtch_ftoi(*left);  // Convert float to int16_t for left channel
-        dst[1] = virtch_ftoi(*right); // Convert float to int16_t for right channel
-        dst += 2;
-        left++;
-        right++;
-    }
-}
-
-#else
-
-static void virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const float* __right, size_t length)
-{
-    sample_t* dst = (sample_t*)ALIGNED_AS(__dst, 64);
-    float* left = (float*)ALIGNED_AS(__left, 16);
-    float* right = (float*)ALIGNED_AS(__right, 16);
-    
-    sample_t* end = dst + length * 2;
-#if (VMIX_SIMD == VMIX_SIMD_AVX512)
-    if (virtch_features)
-        if ((((size_t)right & 63) == 0) && (((size_t)left & 63) == 0))
-        {
-            v16sf cst = _mm512_set1_ps(ONE); // This code was never tested
-            for (length >>= 5; length; length--)
-            {
-                v16sf v0 = _mm512_mul_ps(_mm512_load_ps(left), cst);
-                v16sf v1 = _mm512_mul_ps(_mm512_load_ps(right), cst);
-                v16sf v2 = _mm512_mul_ps(_mm512_load_ps(left + 16), cst);
-                v16sf v3 = _mm512_mul_ps(_mm512_load_ps(right + 16), cst);
-                v16si v4 = _mm512_cvttps_epi32(v0);
-                v16si v5 = _mm512_cvttps_epi32(v1);
-                v16si v6 = _mm512_cvttps_epi32(v2);
-                v16si v7 = _mm512_cvttps_epi32(v3);
-                v16si v8 = _mm512_packs_epi32(v4, v6);
-                v16si v9 = _mm512_packs_epi32(v5, v7);
-                _mm512_store_si512((v16si*)(dst), _mm512_unpacklo_epi16(v8, v9));
-                _mm512_store_si512((v16si*)(dst + 32), _mm512_unpackhi_epi16(v8, v9));
-                left += 32;
-                right += 32;
-                dst += 64;
-            }
-           
-        }
-#elif (VMIX_SIMD == VMIX_SIMD_AVX2 || VMIX_SIMD == VMIX_SIMD_AVX512)
-    if (virtch_features)
-        if ((((size_t)right & 31) == 0) && (((size_t)left & 31) == 0))
-        {
-            v8sf cst = _mm256_set1_ps(ONE);
-            for (length >>= 4; length; length--)
-            {
-                v8sf v0 = _mm256_mul_ps(_mm256_load_ps(left), cst);
-                v8sf v1 = _mm256_mul_ps(_mm256_load_ps(right), cst);
-                v8sf v2 = _mm256_mul_ps(_mm256_load_ps(left + 8), cst);
-                v8sf v3 = _mm256_mul_ps(_mm256_load_ps(right + 8), cst);
-                v8si v4 = _mm256_cvttps_epi32(v0);
-                v8si v6 = _mm256_cvttps_epi32(v2);
-                v8si v5 = _mm256_cvttps_epi32(v1);
-                v8si v7 = _mm256_cvttps_epi32(v3);
-                v8si v8 = _mm256_packs_epi32(v4, v6);
-                v8si v9 = _mm256_packs_epi32(v5, v7);
-                unpacklo_epi16_store((v8si*)(dst), v8, v9);
-                unpackhi_epi16_store((v8si*)(dst + 16), v8, v9);
-                left += 16;
-                right += 16;
-                dst += 32;
-            }
-         
-            _mm256_zeroupper(); // Will switch to SSE
-        }
-#elif (VMIX_SIMD >= VMIX_SIMD_SSE)
-    if (virtch_features)
-        if ((((size_t)right & 15) == 0) && (((size_t)left & 15) == 0))
-        {
-            v4sf cst = _mm_load_ps1(&ONE);
-            for (length >>= 3; length; length--)
-            {
-                v4sf v0 = _mm_mul_ps(_mm_load_ps(left), cst);
-                v4sf v1 = _mm_mul_ps(_mm_load_ps(right), cst);
-                v4sf v2 = _mm_mul_ps(_mm_load_ps(left + 4), cst);
-                v4sf v3 = _mm_mul_ps(_mm_load_ps(right + 4), cst);
-                v4si v4 = _mm_cvttps_epi32(v0);
-                v4si v5 = _mm_cvttps_epi32(v1);
-                v4si v6 = _mm_cvttps_epi32(v2);
-                v4si v7 = _mm_cvttps_epi32(v3);
-                v4si v8 = _mm_packs_epi32(v4, v6);
-                v4si v9 = _mm_packs_epi32(v5, v7);
-                _mm_store_si128((v4si*)(dst), _mm_unpacklo_epi16(v8, v9));
-                _mm_store_si128((v4si*)(dst + 8), _mm_unpackhi_epi16(v8, v9));
-                left += 8;
-                right += 8;
-                dst += 16;
-            }
-       
-        }
-#else
-    if (virtch_features)
-    for (length >>= 3; length; length--)
+#if (VMIX_SIMD == VMIX_SIMD_NEON)
     {
-        dst[0] = virtch_ftoi(left[0]);
-        dst[1] = virtch_ftoi(right[0]);
-        dst[2] = virtch_ftoi(left[1]);
-        dst[3] = virtch_ftoi(right[1]);
-        dst[4] = virtch_ftoi(left[2]);
-        dst[5] = virtch_ftoi(right[2]);
-        dst[6] = virtch_ftoi(left[3]);
-        dst[7] = virtch_ftoi(right[3]);
-        dst[8] = virtch_ftoi(left[4]);
-        dst[9] = virtch_ftoi(right[4]);
-        dst[10] = virtch_ftoi(left[5]);
-        dst[11] = virtch_ftoi(right[5]);
-        dst[12] = virtch_ftoi(left[6]);
-        dst[13] = virtch_ftoi(right[6]);
-        dst[14] = virtch_ftoi(left[7]);
-        dst[15] = virtch_ftoi(right[7]);
-        left += 8;
-        right += 8;
-        dst += 16;
+        float32x4_t cst = vdupq_n_f32(ONE);  // Load constant ONE into NEON register
+        for (length >>= 3; length; length--)
+        {
+            // Load 4 floats from left and right arrays
+            float32x4_t v0 = vmulq_f32(vld1q_f32(left), cst);
+            float32x4_t v1 = vmulq_f32(vld1q_f32(right), cst);
+            float32x4_t v2 = vmulq_f32(vld1q_f32(left + 4), cst);
+            float32x4_t v3 = vmulq_f32(vld1q_f32(right + 4), cst);
+            int32x4_t v4 = vcvtq_s32_f32(v0);
+            int32x4_t v5 = vcvtq_s32_f32(v1);
+            int32x4_t v6 = vcvtq_s32_f32(v2);
+            int32x4_t v7 = vcvtq_s32_f32(v3);
+            vst1q_s16((int16_t*)(dst), vqmovn_high_s32(vqmovn_s32(v4), v6));
+            vst1q_s16((int16_t*)(dst + 8), vqmovn_high_s32(vqmovn_s32(v5), v7));
+            left += 8;
+            right += 8;
+            dst += 16;
+        }
     }
 #endif
-    while(dst < end)
-    {
-        dst[0] = virtch_ftoi(*left);
-        dst[1] = virtch_ftoi(*right);
-        dst+=2;
-        left++;
-        right++;
-    }
-    return;
+
+    return dst - start;
 }
 
-#endif
 
 
 /**
@@ -891,11 +742,10 @@ static void virtch_pack_float_int16_st(sample_t* __dst, const float* __left, con
  * @param length number of samples
  */
 
-static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_t length)
+inline size_t process_simd_floats_to_ints(const float* left, sample_t* dst, size_t length)
 {
-    sample_t* end = dst + length;
+    sample_t* start = dst;
 #if (VMIX_SIMD == VMIX_SIMD_AVX512)
-    if (((size_t)left & 63) == 0)
     {
         v16sf cst = _mm512_set1_ps(ONE);  // vbroadcastss
         for (length >>= 5; length; length--)
@@ -910,8 +760,7 @@ static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_
             dst += 32;
         }
     }
-#elif (VMIX_SIMD >= VMIX_SIMD_SSE)
-    if (((size_t)left & 15) == 0)
+#elif (VMIX_SIMD >= VMIX_SIMD_SSE)    
     {
         v4sf cst = _mm_load_ps1(&ONE);
         for (length >>= 3; length; length--)
@@ -927,21 +776,66 @@ static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_
         }
 
     }
-#else
-    for (length >>= 3; length; length--)
-    {
-        dst[0] = virtch_ftoi(left[0]);
-        dst[1] = virtch_ftoi(left[1]);
-        dst[2] = virtch_ftoi(left[2]);
-        dst[3] = virtch_ftoi(left[3]);
-        dst[4] = virtch_ftoi(left[4]);
-        dst[5] = virtch_ftoi(left[5]);
-        dst[6] = virtch_ftoi(left[6]);
-        dst[7] = virtch_ftoi(left[7]);
-        left += 8;
-        dst += 8;
-    }
 #endif
+
+    return dst - start;
+}
+
+
+/**
+ * converts float array to sample
+ *
+ * @param dst output buffer of samples
+ * @param left input left channel of float
+ * @param length number of samples
+ */
+void virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const float* __right, size_t length) {
+    sample_t* dst = (sample_t*)ALIGNED_AS(__dst, 64);  // Ensure destination is aligned to 64 bytes
+    float* left = (float*)ALIGNED_AS(__left, 16);       // Ensure left array is aligned to 16 bytes
+    float* right = (float*)ALIGNED_AS(__right, 16);     // Ensure right array is aligned to 16 bytes
+    sample_t* end = dst + length * 2;
+
+    // Check virtch_features first to enable SIMD
+    if (virtch_features) {
+        
+		size_t processed = process_simd_floats_to_ints_st(left, right, dst, length); // Process SIMD operations (if available 
+		if (processed == length * 2) return; // If all samples are processed, return (no need to process non-SIMD path
+        dst += processed;
+		left += processed >> 1;
+        right += processed >> 1;
+    }
+
+    // Fallback for non-SIMD paths when virtch_features is disabled or SIMD isn't used
+    while (dst < end) {
+        dst[0] = virtch_ftoi(*left);  // Convert float to int16_t for left channel
+        dst[1] = virtch_ftoi(*right); // Convert float to int16_t for right channel
+        dst += 2;
+        left++;
+        right++;
+    }
+}
+
+/**
+ * converts float array to sample
+ *
+ * @param dst output buffer of samples
+ * @param left input left channel of float
+ * @param length number of samples
+ */
+
+static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_t length)
+{
+    sample_t* end = dst + length;
+
+    // Check virtch_features first to enable SIMD
+    if (virtch_features) {
+
+        size_t processed = process_simd_floats_to_ints(left, dst, length); // Process SIMD operations (if available 
+        if (processed == length ) return; // If all samples are processed, return (no need to process non-SIMD path
+        dst += processed;
+        left += processed >> 1;
+    }
+    
     while(dst < end)
     {
         dst[0] = virtch_ftoi(*left);
@@ -952,13 +846,12 @@ static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_
 }
 
 /**
- * converts float array to sample_t
+ * converts float array to sample
  *
  * @param dst output buffer of samples
  * @param src input channels
  * @param channels number of channels (1 or 2)
  * @param length number of samples
- * @return none
  */
 int virtch_pack_float_int16(sample_t* dst, const float** src, int channels, size_t length)
 {
@@ -1000,7 +893,11 @@ int virtch_pack_float_int16(sample_t* dst, const float** src, int channels, size
 }
 /**
  * interleave two array of float to one
-
+ *
+ * @param dst output buffer of samples
+ * @param left input left channel of float
+ * @param right input right channel of float
+ * @param length number of samples
  */
 static void virtch_deinterleave_st_float(float* dst, const float* left, const float* right, size_t length)
 {
@@ -1036,6 +933,14 @@ void virtch_deinterleave_float(float* dst, const float** src, int channels, size
         virtch_deinterleave_st_float(dst, src[0], src[1], length);
     }
 }
+/**
+ * interleave two array of float to one
+ *
+ * @param dst output buffer of samples
+ * @param src input channels
+ * @param channels number of channels (1 or 2)
+ * @param length number of samples
+ */
 void virtch_deinterleave_float_int16(float**dst, const int16_t* src, int length)
 {
     float one = 1.0f / 32767.0f;

@@ -192,4 +192,8 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
+
+
+#define FRACBITS VMIX_FRACBITS
+#define FP_SHIFT VMIX_FP_SHIFT
 #endif
