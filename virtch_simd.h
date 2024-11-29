@@ -98,6 +98,13 @@ typedef int16x8_t v8sw;
 typedef int16x4_t v4sw;
 #define vec_set_4sw(a,b,c,d) {a, b, c, d}
 
+#if !defined(__aarch64__) // ARM64 (ARMv8-A 64-bit)
+static inline int16x8_t vqmovn_high_s32(int16x4_t low, int32x4_t high) {
+    int16x4_t high_narrow = vqmovn_s32(high);
+    return vcombine_s16(low, high_narrow);
+}
+#endif
+
 #elif VMIX_SIMD == VMIX_SIMD_SSE || VMIX_SIMD == VMIX_SIMD_AVX || VMIX_SIMD == VMIX_SIMD_AVX2 || VMIX_SIMD == VMIX_SIMD_AVX512
 #include <immintrin.h>
 typedef __m128 v4sf;
@@ -168,25 +175,26 @@ extern "C"
     /* enable SIMD processing. 0 to disable */
     void virtch_set_features(int features);
 	/* downmix a 32bit buffer samples (sint32) to int16 */
-    void virtch_downmix_32_16(const streamsample_t* src, int16_t *dst, size_t n);
+    void virtch_downmix_32_16(const streamsample_t* src, int16_t *dst, size_t aLength);
 	/* downmix a 32bit buffer samples (sint32) to int8 */
-    void virtch_downmix_32_8(const streamsample_t* src, int8_t *dst, size_t n);
+    void virtch_downmix_32_8(const streamsample_t* src, int8_t *dst, size_t aLength);
 	/* downmix a 32bit buffer samples (sint32) fp32 */
-    void virtch_downmix_32_fp32(const streamsample_t* src, float *dst, size_t n);
+    void virtch_downmix_32_fp32(const streamsample_t* src, float *dst, size_t aLength);
     /* mix mono stream with mono samples*/
-	size_t virtch_mix_mono(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t n);
+	size_t virtch_mix_mono(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t aLength);
     /* mix stereo stream  with mono samples*/
-	size_t virtch_mix_stereo(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t n);
+	size_t virtch_mix_stereo(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t aLength);
     /* mix stereo stream with stereo samples*/
-	size_t virtch_mix_stereo_st(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t n);
+	size_t virtch_mix_stereo_st(const sample_t* src, const int32_t* volume, streamsample_t* dst, size_t offset, size_t increment, size_t aLength);
 	/* convert int16 sample to floating buffer */
-    void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t n);
+    void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t aLength);
 	/* convert int8 sample to floating buffer */
-    void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t n);
+    void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t aLength);
     /* convert float to int16 */
-    int virtch_pack_float_int16(sample_t* outdata, const float** pcm, int channels, size_t n);
+    size_t virtch_pack_float_int16(sample_t* outdata, const float** pcm, int channels, size_t aLength);
+    size_t virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const float* __right, size_t length);
     /* deinterleave two arrays of float to a single array*/
-    void virtch_deinterleave_float(float* outdata, const float** pcm, int channels, size_t n);
+    void virtch_deinterleave_float(float* outdata, const float** pcm, int channels, size_t aLength);
     /* */
     void virtch_deinterleave_float_int16(float**dst, const int16_t* src,int length);
 #ifdef __cplusplus
@@ -196,4 +204,5 @@ extern "C"
 
 #define FRACBITS VMIX_FRACBITS
 #define FP_SHIFT VMIX_FP_SHIFT
+#define BITSHIFT VMIX_BITSHIFT
 #endif
