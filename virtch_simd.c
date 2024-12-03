@@ -17,7 +17,11 @@
 // SOFTWARE.
 
 #include "virtch_simd.h"
-#include  <memory.h>
+#include <memory.h>
+#include <string.h>
+#include <stdint.h>
+#include <stddef.h>
+
 static const float ONE_16S = 32767;
 static const float INV_ONE_16S = 1.0f / 32767.0f; 
 static int virtch_features = 0;
@@ -104,7 +108,7 @@ void virtch_downmix_32_fp32(const streamsample_t* src,
         aLength--;
     }
 }
-static size_t virtch_downmix_32_16_neon(const streamsample_t* src,
+size_t virtch_downmix_32_16_neon(const streamsample_t* src,
                                       int16_t* dst,
                                       size_t aLength)
 {
@@ -196,7 +200,7 @@ static size_t virtch_downmix_32_16_sse(const streamsample_t* src,
 	return dst - start;    
 }
 
-static size_t virtch_downmix_32_16_ppc(const streamsample_t* src,
+size_t virtch_downmix_32_16_ppc(const streamsample_t* src,
     int16_t* dst,
     size_t aLength)
 {
@@ -365,6 +369,7 @@ static size_t virtch_mix_stereo_sse(const sample_t* src,
 
             dst += 16;
         }
+        aLength = remaining;
     }
 #endif
 
@@ -377,7 +382,7 @@ static size_t virtch_mix_stereo_sse(const sample_t* src,
     return dst - start;
 }
 
-static size_t virtch_mix_stereo_neon(const sample_t* src,
+size_t virtch_mix_stereo_neon(const sample_t* src,
     const int32_t* vol,
     streamsample_t* dst,
     size_t offset,
@@ -423,7 +428,7 @@ static size_t virtch_mix_stereo_neon(const sample_t* src,
     return dst - start;
 }
 
-static size_t virtch_mix_stereo_ppc(const sample_t* src,
+size_t virtch_mix_stereo_ppc(const sample_t* src,
     const int32_t* vol,
     streamsample_t* dst,
     size_t offset,
@@ -637,7 +642,7 @@ static size_t virtch_mix_stereo_st_sse(const sample_t* src,
 }
 
 
-static size_t virtch_mix_stereo_st_neon(const sample_t* src,
+size_t virtch_mix_stereo_st_neon(const sample_t* src,
     const int32_t* vol,
     streamsample_t* dst,
     size_t offset,
@@ -675,17 +680,6 @@ static size_t virtch_mix_stereo_st_neon(const sample_t* src,
     return dst - start;
 }
 
-/**
- * mix a source buffer with volume, to a 32bit buffer. Apply pitch
- *
- * @param dst output buffer of samples
- * @param src input buffer of samples
- * @param vol input volume (fixed point, 9 bit)
- * @param aLength number of samples (divide by 2 from bytes count)
- * @param offset source offset
- * @param increment increment (11 bit) for full speed
- * @return number of sample proceeded
- */
 size_t virtch_mix_stereo_st(const sample_t* __src,
                             const int32_t* vol,
                             streamsample_t* __dst,
@@ -736,7 +730,7 @@ void virtch_int8_to_fp(const int8_t* src, float* dst, int numChannels, size_t aL
     }
 }
 
-static void virtch_int16_to_ppc(const sample_t* src, float* dst, int numChannels, size_t aLength)
+void virtch_int16_to_ppc(const sample_t* src, float* dst, int numChannels, size_t aLength)
 {
 #if (VMIX_SIMD == VMIX_SIMD_ALTIVEC)
 
@@ -799,10 +793,7 @@ void virtch_int16_to_fp(const sample_t* src, float* dst, int numChannels, size_t
     }
 #endif
 }
-/**
- * Convert array of samples to float arrays
- *
- */
+
 static sample_t virtch_ftoi(float inval)
 {
     if (inval < -1.f)
@@ -811,12 +802,7 @@ static sample_t virtch_ftoi(float inval)
         return 32767;
     return (sample_t)(inval * ONE_16S);
 }
-/**
- * Convert float to int with clamp
- *
- * @param inval float value
- * @return integer value (16-bit signed)
- */
+
 inline size_t process_simd_floats_to_ints_st(const float* left, const float* right, sample_t* dst, size_t aLength) {
 
     sample_t* start = dst;
@@ -971,14 +957,6 @@ inline size_t process_simd_floats_to_ints(const float* left, sample_t* dst, size
     return dst - start;
 }
 
-
-/**
- * converts float array to sample
- *
- * @param dst output buffer of samples
- * @param left input left channel of float
- * @param aLength number of samples
- */
 size_t virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const float* __right, size_t aLength) {
     sample_t* dst = (sample_t*)ALIGNED_AS(__dst, 64);  // Ensure destination is aligned to 64 bytes
     float* left = (float*)ALIGNED_AS(__left, 16);       // Ensure left array is aligned to 16 bytes
@@ -1014,7 +992,9 @@ size_t virtch_pack_float_int16_st(sample_t* __dst, const float* __left, const fl
  * @param aLength number of samples
  */
 
-static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_t aLength)
+static void virtch_pack_float_int16_mono(sample_t* dst,
+    const float* left,
+    size_t aLength)
 {
     sample_t* end = dst + aLength;
 
@@ -1044,7 +1024,10 @@ static void virtch_pack_float_int16_mono(sample_t* dst, const float* left, size_
  * @param channels number of channels (1 or 2)
  * @param aLength number of samples
  */
-size_t virtch_pack_float_int16(sample_t* dst, const float** src, int channels, size_t aLength)
+size_t virtch_pack_float_int16(sample_t* dst,
+    const float** src,
+    int channels,
+    size_t aLength)
 {
 #if (VMIX_SIMD >= VMIX_SIMD_SSE)
     _mm_prefetch((const char*)src[0], _MM_HINT_T0);
@@ -1124,21 +1107,19 @@ void virtch_deinterleave_float(float* dst, const float** src, int channels, size
         virtch_deinterleave_st_float(dst, src[0], src[1], aLength);
     }
 }
+
 /**
- * interleave two array of float to one
- *
- * @param dst output buffer of samples
- * @param src input channels
- * @param channels number of channels (1 or 2)
- * @param aLength number of samples
+ * \brief Deinterleave an array of int16_t samples into two float arrays.
+ * \param dst Output buffers for left and right channels.
+ * \param src Input buffer of interleaved int16_t samples.
+ * \param aLength Number of samples in the input buffer.
  */
-void virtch_deinterleave_float_int16(float**dst, const int16_t* src, int aLength)
+void virtch_deinterleave_float_int16(float** dst, const int16_t* src, int aLength)
 {
-    for (int i = 0; i < aLength; i+=2)
+    for (int i = 0; i < aLength; i += 2)
     {
-        // TODO: _mm_unpacklo_epi16 + _mm_cvtepi32_ps
-        dst[0][i>>1] = (int16_t)(src[i    ] * INV_ONE_16S);
-        dst[1][i>>1] = (int16_t)(src[i + 1] * INV_ONE_16S);
+        dst[0][i >> 1] = src[i] * INV_ONE_16S;
+        dst[1][i >> 1] = src[i + 1] * INV_ONE_16S;
     }
 }
 #ifdef TEST
@@ -1148,9 +1129,7 @@ void virtch_deinterleave_float_int16(float**dst, const int16_t* src, int aLength
  gcc virtch_simd.c -DTEST -o virtch -g -Os -mavx2
  cl /arch:AVX2 /O2 /Zi /DTEST virtch_simd.c /Fevirtch.exe
  ***/
-
-
-#include <stdint.h>
+#include <assert.h>
 #include <stdio.h>
 
  // Timer-related macros
